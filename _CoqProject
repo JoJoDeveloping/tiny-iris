@@ -1,0 +1,7 @@
+-Q theories simplesl
+
+theories/lang.v
+theories/heapprop.v
+theories/primitives.v
+theories/weakestpre.v
+theories/adequacy.v
