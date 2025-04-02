@@ -5,12 +5,15 @@ Section lang.
 
   Definition loc := nat.
 
+  Inductive op := Add | Sub | Mul | Eq | Le.
+
   Inductive expr := 
     Lam (x : string) (e : expr)
   | App (e1 : expr) (e2 : expr)
   | Var (x : string)
   | Num (z : Z)
-  | Add (e1 e2 : expr)
+  | Op (e1 : expr) (op : op) (e2 : expr)
+  | If (e1 e2 e3 : expr)
   | New (e : expr)
   | Load (e : expr)
   | Store (e1 e2 : expr)
@@ -45,8 +48,9 @@ Section lang.
   | EmptyCtx
   | AppLCtx (K : ectx) (e2 : val)
   | AppRCtx (e1 : expr) (K : ectx)
-  | AddLCtx (K : ectx) (e2 : val)
-  | AddRCtx (e1 : expr) (K : ectx)
+  | OpLCtx (K : ectx) (op : op) (e2 : val)
+  | OpRCtx (e1 : expr) (op : op) (K : ectx)
+  | IfCtx (K : ectx) (e2 e3 : expr)
   | NewCtx (K : ectx) 
   | LoadCtx (K : ectx) 
   | StoreLCtx (K : ectx) (e2 : val)
@@ -56,8 +60,9 @@ Section lang.
     EmptyCtx => e
   | AppLCtx K v2 => App (fill K e) (of_val v2)
   | AppRCtx e1 K => App e1 (fill K e)
-  | AddLCtx K v2 => Add (fill K e) (of_val v2)
-  | AddRCtx e1 K => Add e1 (fill K e)
+  | OpLCtx K op v2 => Op (fill K e) op (of_val v2)
+  | OpRCtx e1 op K => Op e1 op (fill K e)
+  | IfCtx K e2 e3 => If (fill K e) e2 e3
   | NewCtx K => New (fill K e)
   | LoadCtx K => Load (fill K e)
   | StoreLCtx K v2 => Store (fill K e) (of_val v2)
@@ -67,8 +72,9 @@ Section lang.
     EmptyCtx => K2
   | AppLCtx K v2 => AppLCtx (ectx_comp K K2) v2
   | AppRCtx e1 K => AppRCtx e1 (ectx_comp K K2)
-  | AddLCtx K v2 => AddLCtx (ectx_comp K K2) v2
-  | AddRCtx e1 K => AddRCtx e1 (ectx_comp K K2)
+  | OpLCtx K op v2 => OpLCtx (ectx_comp K K2) op v2
+  | OpRCtx e1 op K => OpRCtx e1 op (ectx_comp K K2)
+  | IfCtx K e2 e3 => IfCtx (ectx_comp K K2) e2 e3
   | NewCtx K => NewCtx (ectx_comp K K2)
   | LoadCtx K => LoadCtx (ectx_comp K K2)
   | StoreLCtx K v2 => StoreLCtx (ectx_comp K K2) v2
@@ -83,17 +89,27 @@ Section lang.
   | App e1 e2 => App (subst e1 x e') (subst e2 x e')
   | Var y => if decide (x = y) then e' else Var y
   | Num z => Num z
-  | Add e1 e2 => Add (subst e1 x e') (subst e2 x e')
+  | Op e1 op e2 => Op (subst e1 x e') op (subst e2 x e')
+  | If e1 e2 e3 => If (subst e1 x e') (subst e2 x e') (subst e3 x e')
   | New e => New (subst e x e')
   | Load e => Load (subst e x e')
   | Store e1 e2 => Store (subst e1 x e') (subst e2 x e')
   | Loc n => Loc n end.
 
+  Definition eval_op (n1 : Z) (op : op) (n2 : Z) : Z := match op with
+    Add => n1 + n2
+  | Sub => n1 - n2
+  | Mul => n1 * n2
+  | Eq => if bool_decide (n1 = n2) then 1 else 0
+  | Le => if bool_decide (n1 ≤ n2) then 1 else 0 end%Z.
+
   Definition state := (gmap nat val).
 
   Inductive base_step : expr → state → expr → state → Prop :=
     BetaS x e v h : base_step (App (Lam x e) (of_val v)) h (subst e x (of_val v)) h
-  | PlusS n1 n2 h : base_step (Add (Num n1) (Num n2)) h (Num (n1 + n2)) h
+  | OpS n1 op n2 h : base_step (Op (Num n1) op (Num n2)) h (Num (eval_op n1 op n2)) h
+  | IfTrueS n e2 e3 h : n ≠ 0%Z → base_step (If (Num n) e2 e3) h e2 h
+  | IfFalseS e2 e3 h : base_step (If (Num 0%Z) e2 e3) h e3 h
   | NewS l v h : l ∉ dom h → base_step (New (of_val v)) h (Loc l) (<[ l := v ]> h)
   | LoadS l v h : h !! l = Some v → base_step (Load (Loc l)) h (of_val v) h
   | StoreS l v v' h : h !! l = Some v' → base_step (Store (Loc l) (of_val v)) h (of_val v') (<[ l := v]> h).
